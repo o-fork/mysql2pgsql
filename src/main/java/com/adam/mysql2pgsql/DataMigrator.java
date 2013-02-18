@@ -86,12 +86,13 @@ public class DataMigrator implements AutoCloseable {
 	 * @param tableName the name of the table to transfer
 	 * @throws SQLException
 	 */
-	private void transferTable(String tableName) throws SQLException {
+	void transferTable(String tableName) throws SQLException {
 		System.out.println("Transfering data for table " + tableName);
 		PreparedStatement mysqlPs = null;
 		PreparedStatement pgsqlPs = null;
 		try {
-			mysqlPs = mysqlCon.prepareStatement("select * from " + "`" + schemaName + "`.`" + tableName + "`");
+			mysqlPs = mysqlCon.prepareStatement("select * from " + "`" + schemaName + "`.`" + tableName + "`", ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY);
+			mysqlPs.setFetchSize(10000);
 			ResultSet mysqlRs = mysqlPs.executeQuery();
 			ResultSetMetaData metaData = mysqlRs.getMetaData();
 			int columnCount = metaData.getColumnCount();
