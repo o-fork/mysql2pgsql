@@ -12,6 +12,7 @@ mvn clean install
 ```sh
 java -Xmx4G -jar target/mysql2pgsql-1.0-SNAPSHOT.jar mysqlhost mysqlport mysqluser pgsqlhost pgsqldb pgsqlport pgsqluser schema
 ```
+The heap size may need to be modified to match the largest table. Mysql's jdbc driver doesn't seem to support limited fetch sizes so all rows are read before writing to postgres
 
 #Flow of operation
 1. Dump mysql schema using mysqldump
