@@ -152,10 +152,12 @@ public class SchemaConverter {
 				line = line.substring(0, m.start(1) - 1) + line.substring(m.end(2) + 1);
 			}
 
-			//Remove some junk:
+			//Remove some not needed charset definitions:
 			line = line.replace(" COLLATE=utf8mb4_unicode_ci", "");
 			line = line.replace(" CHARACTER SET latin1", "");
+			line = line.replace(" CHARACTER SET utf8mb4", "");
 			line = line.replace(" COLLATE utf8mb4_unicode_ci", "");
+			//Remove autoupdating timestamps
 			line = line.replace(" DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP", "");
 
 
