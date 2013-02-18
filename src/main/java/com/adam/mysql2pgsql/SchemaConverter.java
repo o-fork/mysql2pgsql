@@ -111,7 +111,9 @@ public class SchemaConverter {
 				continue;
 			}
 			//Indices
-			m = compile("^KEY `(\\S+)` \\((.*)\\),?$").matcher(line);
+			//from: KEY `ix_name` (`col1`,`col2`,`col3`,`col4`) USING BTREE
+			//to:   CREATE INDEX "schema_name_table_name" ON "schema_name"."table_name" ("col1", "col2", "col3", "col4");
+			m = compile("^KEY `(\\S+)` \\((.*)\\)[^\\(]*$").matcher(line);
 			if (m.matches()) {
 				String[] cols = m.group(2).split(",");
 				List<String> colsList = new LinkedList<>();
@@ -131,17 +133,17 @@ public class SchemaConverter {
 				continue;
 			}
 			//Unique constraints
-			//from: UNIQUE KEY `ix_name` (`col1`,`col2`,`col3`,`col4`)
+			//from: UNIQUE KEY `ix_name` (`col1`,`col2`,`col3`,`col4`) USING BTREE
 			//to:   ALTER TABLE "schema_name"."table_name" ADD CONSTRAINT "ix_name" UNIQUE ("col1", "col2", "col3", "col4");
-			m = compile("^UNIQUE KEY `(\\S+)` \\((\\S+)\\)$").matcher(line);
+			m = compile("^UNIQUE KEY `(\\S+)` \\((\\S+)\\)[^\\(]*$").matcher(line);
 			if (m.matches()) {
 				tableMetaData.addConstraint(format("ALTER TABLE \"%s\".\"%s\" ADD CONSTRAINT \"%s_%s\" UNIQUE (%s)", schemaName, tableMetaData.getTableName(), tableMetaData.getTableName(), m.group(1), m.group(2).replaceAll("`", "\"")));
 				continue;
 			}
 			//Primary keys
-			//from: PRIMARY KEY (`col1`,`col2`)
+			//from: PRIMARY KEY (`col1`,`col2`) USING BTREE
 			//to  : ALTER TABLE "schema_name"."table_name" ADD CONSTRAINT "table_name_pkey" PRIMARY KEY ("col1", "col2");
-			m = compile("^PRIMARY KEY \\((\\S+)\\)$").matcher(line);
+			m = compile("^PRIMARY KEY \\((\\S+)\\)[^\\(]*$").matcher(line);
 			if (m.matches()) {
 				tableMetaData.addPk(format("ALTER TABLE \"%s\".\"%s\" ADD CONSTRAINT \"%s_pkey\" PRIMARY KEY (%s)", schemaName, tableMetaData.getTableName(), tableMetaData.getTableName(), m.group(1).replaceAll("`", "\"")));
 				continue;
