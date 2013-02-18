@@ -190,15 +190,23 @@ public class DataMigrator implements AutoCloseable {
 				}
 				break;
 			}
+			case Types.BIT: {
+				boolean value = mysqlRs.getBoolean(colName);
+				if (mysqlRs.wasNull()) {
+					pgsqlPs.setNull(position, Types.BIT);
+				} else {
+					pgsqlPs.setBoolean(position, value);
+				}
+				break;
+			}
 			case Types.INTEGER:
 			case Types.SMALLINT:
-			case Types.TINYINT:
-			case Types.BIT: {
-				long value = mysqlRs.getInt(colName);
+			case Types.TINYINT: {
+				int value = mysqlRs.getInt(colName);
 				if (mysqlRs.wasNull()) {
 					pgsqlPs.setNull(position, Types.INTEGER);
 				} else {
-					pgsqlPs.setLong(position, value);
+					pgsqlPs.setInt(position, value);
 				}
 				break;
 			}

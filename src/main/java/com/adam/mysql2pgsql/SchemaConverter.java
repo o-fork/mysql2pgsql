@@ -175,6 +175,14 @@ public class SchemaConverter {
 			// bigint with auto inc -> to bigserial
 			line = line.replaceFirst(" bigint\\([0-9]*\\) (unsigned )?NOT NULL AUTO_INCREMENT", " bigserial");
 
+			line = line.replaceFirst("^`(\\S+)` tinyint\\(1\\)([A-Z ]*) DEFAULT '0'$", "`$1` boolean$2 DEFAULT false");
+			line = line.replaceFirst("^`(\\S+)` tinyint\\(1\\)([A-Z ]*) DEFAULT '1'$", "`$1` boolean$2 DEFAULT true");
+			line = line.replace(" tinyint(1)", " boolean");
+
+			line = line.replaceFirst("^`(\\S+)` bit\\(1\\)([A-Z ]*) DEFAULT b'0'$", "`$1` boolean$2 DEFAULT false");
+			line = line.replaceFirst("^`(\\S+)` bit\\(1\\)([A-Z ]*) DEFAULT b'1'$", "`$1` boolean$2 DEFAULT true");
+			line = line.replace(" bit(1)", " boolean");
+
 			line = line.replaceFirst(" int\\([0-9]*\\)", " integer");
 			line = line.replaceFirst(" bigint\\([0-9]*\\)", " bigint");
 			line = line.replaceFirst(" tinyint\\([0-9]*\\)", " smallint");
