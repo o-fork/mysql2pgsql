@@ -64,7 +64,7 @@ public class TableMetaData {
 		return retStr;
 	}
 
-	String generateIndicesStatement(String schemaName) {
+	String generateIndicesStatement() {
 		if (indices.isEmpty()) {
 			return null;
 		}
@@ -75,7 +75,7 @@ public class TableMetaData {
 		return retStr;
 	}
 
-	String generateConstraintsStatement(String schemaName) {
+	String generateConstraintsStatement() {
 		if (constraints.isEmpty()) {
 			return null;
 		}
@@ -86,7 +86,7 @@ public class TableMetaData {
 		return retStr;
 	}
 
-	String generatePkStatement(String schemaName) {
+	String generatePkStatement() {
 		if (pks.isEmpty()) {
 			return null;
 		}

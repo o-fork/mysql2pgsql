@@ -111,19 +111,8 @@ public class SchemaConverter {
 				continue;
 			}
 			//Indices
-			//from: KEY `ix_name` (`col1`,`col2`,`col3`,`col4`) USING BTREE
-			//to:   CREATE INDEX "schema_name_table_name" ON "schema_name"."table_name" ("col1", "col2", "col3", "col4");
-			m = compile("^KEY `(\\S+)` \\((.*)\\)[^\\(]*$").matcher(line);
-			if (m.matches()) {
-				String[] cols = m.group(2).split(",");
-				List<String> colsList = new LinkedList<>();
-				for (String col : cols) {
-					Matcher m2 = compile("`(\\S+)`(\\([0-9]+\\))?").matcher(col);
-					if (m2.matches()) {
-						colsList.add("\"" + m2.group(1) + "\"");
-					}
-				}
-				tableMetaData.addIndex(format("CREATE INDEX \"%s_%s\" ON \"%s\".\"%s\" (%s)", tableMetaData.getTableName(), m.group(1), schemaName, tableMetaData.getTableName(), listToString(colsList)));
+			if (line.startsWith("KEY")) {
+				convertIndexInstruction(tableMetaData, line);
 				continue;
 			}
 			// CONSTRAINT "fk_constraint_name" FOREIGN KEY ("col_name") REFERENCES "ref_table_name" ("ref_col_name") ON UPDATE NO ACTION
@@ -242,12 +231,12 @@ public class SchemaConverter {
 		File file = File.createTempFile(schemaName + "_ix_constraints_definition", ".sql");
 		try (BufferedWriter writer = new BufferedWriter(new FileWriter(file))) {
 			for (TableMetaData tableMetaData : tables) {
-				String cons = tableMetaData.generateConstraintsStatement(schemaName);
+				String cons = tableMetaData.generateConstraintsStatement();
 				if (cons != null && !cons.isEmpty()) {
 					writer.write(cons);
 					writer.write('\n');
 				}
-				String idx = tableMetaData.generateIndicesStatement(schemaName);
+				String idx = tableMetaData.generateIndicesStatement();
 				if (idx != null && !idx.isEmpty()) {
 					writer.write(idx);
 					writer.write('\n');
@@ -262,7 +251,7 @@ public class SchemaConverter {
 		File file = File.createTempFile(schemaName + "_pk_definition", ".sql");
 		try (BufferedWriter writer = new BufferedWriter(new FileWriter(file))) {
 			for (TableMetaData tableMetaData : tables) {
-				String pk = tableMetaData.generatePkStatement(schemaName);
+				String pk = tableMetaData.generatePkStatement();
 				if (pk != null && !pk.isEmpty()) {
 					writer.write(pk);
 					writer.write('\n');
@@ -271,5 +260,29 @@ public class SchemaConverter {
 			writer.flush();
 		}
 		return file;
+	}
+
+	private void convertIndexInstruction(TableMetaData tableMetaData, String line) throws ParseException {
+		//from: KEY `ix_name` (`col1`,`col2`,`col3`,`col4`) USING BTREE
+		//to:   CREATE INDEX "schema_name_table_name" ON "schema_name"."table_name" ("col1", "col2", "col3", "col4");
+		Matcher m = compile("^KEY `(\\S+)` \\((.*)\\)[^\\(]*$").matcher(line);
+		if (m.matches()) {
+			String[] cols = m.group(2).split(",");
+			List<String> colsList = new LinkedList<>();
+			for (String col : cols) {
+				Matcher m2 = compile("`(\\S+)`(\\([0-9]+\\))?").matcher(col);
+				if (m2.matches()) {
+					String numeric = m2.group(2);
+					if (numeric != null && !numeric.isEmpty()) {
+						colsList.add("left(\"" + m2.group(1) + "\", " + numeric.substring(1, numeric.length() - 1) + ")");
+					} else {
+						colsList.add("\"" + m2.group(1) + "\"");
+					}
+				}
+			}
+			tableMetaData.addIndex(format("CREATE INDEX \"%s_%s\" ON \"%s\".\"%s\" (%s)", tableMetaData.getTableName(), m.group(1), schemaName, tableMetaData.getTableName(), listToString(colsList)));
+		} else {
+			throw new ParseException("Could not parse index row: " + line, -1);
+		}
 	}
 }
