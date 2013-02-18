@@ -85,7 +85,8 @@ public class SchemaConverter {
 		TableMetaData tableMetaData = null;
 		List<TableMetaData> tables = new ArrayList<>();
 		Matcher m;
-		for (String line : lines) {
+		for (String tmp : lines) {
+			String line = tmp;
 			line = line.trim();
 			if (line.endsWith(",")) {
 				line = line.substring(0, line.length() - 1);

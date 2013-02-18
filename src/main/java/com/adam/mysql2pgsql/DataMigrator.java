@@ -120,13 +120,13 @@ public class DataMigrator implements AutoCloseable {
 				if (ctr % BATCH_SIZE == 0) {
 					pgsqlPs.executeBatch();
 					pgsqlCon.commit();
-					System.out.println(tableName + ": interCtr = " + totCtr + ", speed is: " + ((int)(((double) totCtr * 1000) / (System.currentTimeMillis() - startTime)) + " r/s"));
+					System.out.println(tableName + ": interCtr = " + totCtr + ", speed is: " + ((int) (((double) totCtr * 1000) / (System.currentTimeMillis() - startTime)) + " r/s"));
 					ctr = 0;
 				}
 			}
 			if (ctr > 0) {
 				pgsqlPs.executeBatch();
-				System.out.println(tableName + ": totCtr = " + totCtr + ", speed is: " + ((int)(((double) totCtr * 1000) / (System.currentTimeMillis() - startTime)) + " r/s"));
+				System.out.println(tableName + ": totCtr = " + totCtr + ", speed is: " + ((int) (((double) totCtr * 1000) / (System.currentTimeMillis() - startTime)) + " r/s"));
 				pgsqlCon.commit();
 			}
 		} finally {
