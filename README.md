@@ -22,8 +22,12 @@ The heap size may need to be modified to match the largest table. Mysql's jdbc d
 5. Create primary keys
 6. Create indexes and other constraints
 
-#Limitations
-* Only plain tables are converted: views and functions are not handled
+#Not converted by this tool
+* Views
+* Functions
+* Users/Accounts
+* Table partitioning
+
 
 #Misc
 Initial attempt was made with bash and python, using mysqldump to transport all data. This solution was quite slow, and when tested, jdbc and batching inserts turned out to be four times faster.
