@@ -21,6 +21,7 @@ The heap size may need to be modified to match the largest table. Mysql's jdbc d
 4. Migrate all data from mysql to pgsql using jdbc
 5. Create primary keys
 6. Create indexes and other constraints
+7. Update all sequences to the current max value of each serial column
 
 #Not converted by this tool
 * Views
