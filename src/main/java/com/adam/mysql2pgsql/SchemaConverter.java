@@ -24,6 +24,7 @@ public class SchemaConverter {
 	final Integer mysqlPort;
 	final String mysqlUser;
 	final String mysqlPassword;
+	private List<String> dumpRows;
 
 	public SchemaConverter(String schemaName, String mysqlHost, Integer mysqlPort, String mysqlUser, String mysqlPassword) {
 		this.schemaName = schemaName;
@@ -36,11 +37,10 @@ public class SchemaConverter {
 	/**
 	 * Uses mysqldump to dump entire db metadata from mysql. There are alternative ways of doing this, such as
 	 * mysql-specific SQL-queries, but this turned out to be the fastest method.
-	 * @return The full metadata test. One list item for each line produced by mysqldump
 	 * @throws IOException
 	 */
 	@SuppressWarnings("SleepWhileInLoop")
-	protected List<String> generateMysqlDumpData() throws IOException {
+	protected void generateMysqlDumpData() throws IOException {
 		List<String> args = new LinkedList<>();
 		args.add("/usr/bin/mysqldump");
 		args.add("--skip-comments");
@@ -78,14 +78,15 @@ public class SchemaConverter {
 			}
 		} catch (InterruptedException ex) {
 		}
-		return lines;
+		this.dumpRows = lines;
 	}
+	private List<TableMetaData> tables;
 
-	protected List<TableMetaData> parseSchemaDump(List<String> lines) throws ParseException {
+	protected void parseSchemaDump() throws ParseException {
 		TableMetaData tableMetaData = null;
-		List<TableMetaData> tables = new ArrayList<>();
+		this.tables = new ArrayList<>();
 		Matcher m;
-		for (String tmp : lines) {
+		for (String tmp : dumpRows) {
 			String line = tmp;
 			line = line.trim();
 			if (line.endsWith(",")) {
@@ -164,10 +165,10 @@ public class SchemaConverter {
 			//Some data type conversion:
 			line = line.replace(" datetime NOT NULL DEFAULT '0000-00-00 00:00:00'", " timestamp NOT NULL");
 			line = line.replace(" datetime", " timestamp");
-			//int with auto inc -> to serial
-			line = line.replaceFirst(" int\\([0-9]*\\) (unsigned )?NOT NULL AUTO_INCREMENT", " serial");
-			// bigint with auto inc -> to bigserial
-			line = line.replaceFirst(" bigint\\([0-9]*\\) (unsigned )?NOT NULL AUTO_INCREMENT", " bigserial");
+			if (line.contains("AUTO_INCREMENT")) {
+				convertAutoIncrementInstruction(tableMetaData, line);
+				continue;
+			}
 
 			line = line.replaceFirst("^`(\\S+)` tinyint\\(1\\)([A-Z ]*) DEFAULT '0'$", "`$1` boolean$2 DEFAULT false");
 			line = line.replaceFirst("^`(\\S+)` tinyint\\(1\\)([A-Z ]*) DEFAULT '1'$", "`$1` boolean$2 DEFAULT true");
@@ -198,9 +199,7 @@ public class SchemaConverter {
 
 			tableMetaData.addColDefinition(line.replace("`", "\""));
 
-
 		}
-		return tables;
 	}
 
 	private static String listToString(List<String> strings) {
@@ -214,7 +213,7 @@ public class SchemaConverter {
 		return retStr;
 	}
 
-	File generatePostgresTableDefinitionFile(String schemaName, String pgsqlUser, List<TableMetaData> tables) throws IOException {
+	File generatePostgresTableDefinitionFile(String pgsqlUser) throws IOException {
 		File file = File.createTempFile(schemaName + "_schema_definition", ".sql");
 		try (BufferedWriter writer = new BufferedWriter(new FileWriter(file))) {
 			writer.write("DROP SCHEMA IF EXISTS " + schemaName + " cascade;\n");
@@ -229,7 +228,7 @@ public class SchemaConverter {
 		return file;
 	}
 
-	File generatePostgresIndexAndConstraintsFile(String schemaName, String pgsqlUser, List<TableMetaData> tables) throws IOException {
+	File generatePostgresIndexAndConstraintsFile() throws IOException {
 		File file = File.createTempFile(schemaName + "_ix_constraints_definition", ".sql");
 		try (BufferedWriter writer = new BufferedWriter(new FileWriter(file))) {
 			for (TableMetaData tableMetaData : tables) {
@@ -249,13 +248,28 @@ public class SchemaConverter {
 		return file;
 	}
 
-	File generatePostgresPkDefFile(String schemaName, String pgsqlUser, List<TableMetaData> tables) throws IOException {
+	File generatePostgresPkDefFile() throws IOException {
 		File file = File.createTempFile(schemaName + "_pk_definition", ".sql");
 		try (BufferedWriter writer = new BufferedWriter(new FileWriter(file))) {
 			for (TableMetaData tableMetaData : tables) {
 				String pk = tableMetaData.generatePkStatement();
 				if (pk != null && !pk.isEmpty()) {
 					writer.write(pk);
+					writer.write('\n');
+				}
+			}
+			writer.flush();
+		}
+		return file;
+	}
+
+	File generatePostSqlFile() throws IOException {
+		File file = File.createTempFile(schemaName + "_post_sqls", ".sql");
+		try (BufferedWriter writer = new BufferedWriter(new FileWriter(file))) {
+			for (TableMetaData tableMetaData : tables) {
+				String postSql = tableMetaData.generatePostSqls();
+				if (postSql != null && !postSql.isEmpty()) {
+					writer.write(postSql);
 					writer.write('\n');
 				}
 			}
@@ -285,6 +299,23 @@ public class SchemaConverter {
 			tableMetaData.addIndex(format("CREATE INDEX \"%s_%s\" ON \"%s\".\"%s\" (%s)", tableMetaData.getTableName(), m.group(1), schemaName, tableMetaData.getTableName(), listToString(colsList)));
 		} else {
 			throw new ParseException("Could not parse index row: " + line, -1);
+		}
+	}
+
+	void convertAutoIncrementInstruction(TableMetaData tableMetaData, String line) throws ParseException {
+		Matcher m = compile("^`(\\S+)` (big)?int\\([0-9]*\\) (unsigned )?NOT NULL AUTO_INCREMENT").matcher(line);
+		if (m.matches()) {
+			tableMetaData.addColDefinition("\"" + m.group(1) + "\" " + (m.group(2) != null ? m.group(2) : "") + "serial");
+			tableMetaData.addPostSQL(format(
+					"SELECT setval('\"%s\".\"%s_%s_seq\"', (select coalesce(max(\"%s\"), 0)+1 from \"%s\".\"%s\"))",
+					schemaName,
+					tableMetaData.getTableName(),
+					m.group(1),
+					m.group(1),
+					schemaName,
+					tableMetaData.getTableName()));
+		} else {
+			throw new ParseException("Could not parse auto increment row: " + line, -1);
 		}
 	}
 }

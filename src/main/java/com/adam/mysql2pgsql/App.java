@@ -7,7 +7,6 @@ import java.io.PrintWriter;
 import java.sql.DriverManager;
 import java.sql.SQLException;
 import java.text.ParseException;
-import java.util.List;
 
 public class App {
 
@@ -55,8 +54,8 @@ public class App {
 
 		//Parse mysql schema
 		writer.println("Dumping and parsing mysql schema...");
-		List<String> mysqlDumpArgs = schemaConverter.generateMysqlDumpData();
-		List<TableMetaData> tables = schemaConverter.parseSchemaDump(mysqlDumpArgs);
+		schemaConverter.generateMysqlDumpData();
+		schemaConverter.parseSchemaDump();
 		writer.println("Done\n");
 
 		//Security check
@@ -80,7 +79,7 @@ public class App {
 
 		//Apply converted schema definition in postgres
 		System.out.println("Deleting and creating schema in postgres...");
-		File postgresTableDefFile = schemaConverter.generatePostgresTableDefinitionFile(schemaName, pgsqlUser, tables);
+		File postgresTableDefFile = schemaConverter.generatePostgresTableDefinitionFile(pgsqlUser);
 		System.out.println(postgresTableDefFile.getAbsolutePath());
 		psqle.executeFile(postgresTableDefFile);
 		System.out.println("Done\n");
@@ -101,14 +100,20 @@ public class App {
 
 		//Apply all constraints and indices
 		System.out.println("Applying pk constraints...");
-		File postgresPkDefFile = schemaConverter.generatePostgresPkDefFile(schemaName, pgsqlUser, tables);
+		File postgresPkDefFile = schemaConverter.generatePostgresPkDefFile();
 		psqle.executeFile(postgresPkDefFile);
 		System.out.println("Done.\n");
 
 		System.out.println("Applying fk constraints and creating indices...");
-		File postgresIdxAndConstraintsFile = schemaConverter.generatePostgresIndexAndConstraintsFile(schemaName, pgsqlUser, tables);
+		File postgresIdxAndConstraintsFile = schemaConverter.generatePostgresIndexAndConstraintsFile();
 		System.out.println(postgresIdxAndConstraintsFile.getAbsolutePath());
 		psqle.executeFile(postgresIdxAndConstraintsFile);
+		System.out.println("Done\n");
+
+		System.out.println("Running post SQLs: Updaing sequences to current increment value...");
+		File postSqlFile = schemaConverter.generatePostSqlFile();
+		System.out.println(postSqlFile.getAbsolutePath());
+		psqle.executeFile(postSqlFile);
 		System.out.println("Done\n");
 
 		//All done

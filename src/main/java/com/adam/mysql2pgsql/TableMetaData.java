@@ -11,6 +11,7 @@ public class TableMetaData {
 	final List<String> constraints;
 	final List<String> pks;
 	final List<String> indices;
+	final List<String> postSqls;
 
 	TableMetaData(String tableName) {
 		this.tableName = tableName;
@@ -19,6 +20,7 @@ public class TableMetaData {
 		this.constraints = new ArrayList<>();
 		this.pks = new ArrayList<>();
 		this.indices = new ArrayList<>();
+		this.postSqls = new ArrayList<>();
 	}
 
 	String getTableName() {
@@ -31,6 +33,10 @@ public class TableMetaData {
 
 	void addComment(String comment) {
 		this.comments.add(comment);
+	}
+
+	void addPostSQL(String postSql) {
+		this.postSqls.add(postSql);
 	}
 
 	void addConstraint(String constraint) {
@@ -97,8 +103,20 @@ public class TableMetaData {
 		return retStr;
 	}
 
+	String generatePostSqls() {
+		if (postSqls.isEmpty()) {
+			return null;
+		}
+		String retStr = "";
+		for (String postSql : postSqls) {
+			retStr += postSql + ";\n";
+		}
+		return retStr;
+	}
+
 	@Override
 	public String toString() {
-		return "TableMetaData{" + "tableName=" + tableName + ", inlineRows=" + colDefinitions + ", comments=" + comments + ", foreignKeys=" + constraints + ", indices=" + indices + '}';
+		return "TableMetaData{" + "\n  tableName=" + tableName + "\n, colDefinitions=" + colDefinitions + "\n, comments=" + comments +
+				"\n, constraints=" + constraints + "\n, pks=" + pks + "\n, indices=" + indices + "\n, postSqls=" + postSqls + '}';
 	}
 }
