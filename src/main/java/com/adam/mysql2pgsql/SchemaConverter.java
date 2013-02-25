@@ -144,8 +144,8 @@ public class SchemaConverter {
 			if (!m.matches()) {
 				throw new ParseException("Could not find the column name from line: " + line, -1);
 			}
-			String columnName = m.group(1);
-
+			String columnName = m.group(1).toLowerCase();
+			line = line.substring(0, m.start(1)) + columnName + line.substring(m.end(1));
 			//Extract possible comments
 			m = compile("^.* (COMMENT) '(.*)'$").matcher(line);
 			if (m.matches()) {

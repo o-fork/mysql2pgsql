@@ -165,7 +165,7 @@ public class DataMigrator implements AutoCloseable {
 		while (iterator.hasNext()) {
 			Integer colPosition = iterator.next();
 			String colName = columnNameByPosition.get(colPosition);
-			colNames.append("\"").append(colName).append("\"");
+			colNames.append("\"").append(colName.toLowerCase()).append("\"");
 			questionMarks.append("?");
 			if (iterator.hasNext()) {
 				colNames.append(", ");
