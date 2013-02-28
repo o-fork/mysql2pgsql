@@ -16,15 +16,13 @@ public class PSQLExecutor {
 	final Integer pgsqlPort;
 	final String pgsqlUser;
 	final String pgsqlPassword;
-	final String schemaName;
 
-	public PSQLExecutor(String pgsqlHost, String pgsqlDb, Integer pgsqlPort, String pgsqlUser, String pgsqlPassword, String schemaName) {
+	public PSQLExecutor(String pgsqlHost, String pgsqlDb, Integer pgsqlPort, String pgsqlUser, String pgsqlPassword) {
 		this.pgsqlHost = pgsqlHost;
 		this.pgsqlDb = pgsqlDb;
 		this.pgsqlPort = pgsqlPort;
 		this.pgsqlUser = pgsqlUser;
 		this.pgsqlPassword = pgsqlPassword;
-		this.schemaName = schemaName;
 	}
 
 	@SuppressWarnings("SleepWhileInLoop")

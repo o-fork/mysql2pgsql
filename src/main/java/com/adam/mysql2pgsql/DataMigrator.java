@@ -24,19 +24,32 @@ public class DataMigrator implements AutoCloseable {
 	private static final long BATCH_SIZE = 10000;
 	private final Connection mysqlCon;
 	private final Connection pgsqlCon;
-	private final String schemaName;
+	private final String mysqlSchema;
+	private final String pgsqlSchema;
 
-	public DataMigrator(String mysqlUrl, String mysqlUser, String mysqlPassword, String pgsqlUrl, String pgsqlUser, String pgsqlPassword, String schemaName) throws SQLException {
+	/**
+	 * @param mysqlUrl
+	 * @param mysqlUser
+	 * @param mysqlPassword
+	 * @param mysqlSchema
+	 * @param pgsqlUrl
+	 * @param pgsqlUser
+	 * @param pgsqlPassword
+	 * @param pgsqlSchema
+	 * @throws SQLException
+	 */
+	public DataMigrator(String mysqlUrl, String mysqlUser, String mysqlPassword, String mysqlSchema, String pgsqlUrl, String pgsqlUser, String pgsqlPassword, String pgsqlSchema) throws SQLException {
 		this.mysqlCon = DriverManager.getConnection(mysqlUrl, mysqlUser, mysqlPassword);
 		this.pgsqlCon = DriverManager.getConnection(pgsqlUrl, pgsqlUser, pgsqlPassword);
-		this.schemaName = schemaName;
+		this.mysqlSchema = mysqlSchema;
+		this.pgsqlSchema = pgsqlSchema;
 	}
 
 	/**
 	 * First, get a list of ignored table names, for the given connection
 	 */
 	private Set<String> getMysqlTableNames() throws SQLException {
-		mysqlCon.setCatalog(schemaName);
+		mysqlCon.setCatalog(mysqlSchema);
 		Set<String> tableNames = new TreeSet<>();
 		String SQL = "SHOW TABLE STATUS";
 		try (PreparedStatement stmt = mysqlCon.prepareStatement(SQL)) {
@@ -91,7 +104,7 @@ public class DataMigrator implements AutoCloseable {
 		PreparedStatement mysqlPs = null;
 		PreparedStatement pgsqlPs = null;
 		try {
-			mysqlPs = mysqlCon.prepareStatement("select * from " + "`" + schemaName + "`.`" + tableName + "`", ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY);
+			mysqlPs = mysqlCon.prepareStatement("select * from " + "`" + mysqlSchema + "`.`" + tableName + "`", ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY);
 			mysqlPs.setFetchSize(10000);
 			ResultSet mysqlRs = mysqlPs.executeQuery();
 			ResultSetMetaData metaData = mysqlRs.getMetaData();
@@ -103,7 +116,7 @@ public class DataMigrator implements AutoCloseable {
 				nameByPosition.put(i, metaData.getColumnLabel(i));
 			}
 			pgsqlCon.setAutoCommit(false);
-			String insertStmt = generateInsertStatement(schemaName, tableName, nameByPosition);
+			String insertStmt = generateInsertStatement(pgsqlSchema, tableName, nameByPosition);
 			pgsqlPs = pgsqlCon.prepareStatement(insertStmt);
 			int totCtr = 0;
 			int ctr = 0;

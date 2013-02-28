@@ -1,33 +1,42 @@
 package com.adam.mysql2pgsql;
 
+import static java.lang.String.format;
+import static java.util.regex.Pattern.compile;
+
 import java.io.BufferedReader;
+import java.io.BufferedWriter;
+import java.io.File;
+import java.io.FileWriter;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.text.ParseException;
 import java.util.ArrayList;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.regex.Matcher;
 
-import static java.lang.String.format;
-import static java.util.regex.Pattern.compile;
-
-import java.io.BufferedWriter;
-import java.io.File;
-import java.io.FileWriter;
-import java.text.ParseException;
-
 public class SchemaConverter {
 
-	final String schemaName;
+	final String mysqlSchema;
 	final String mysqlHost;
 	final Integer mysqlPort;
 	final String mysqlUser;
 	final String mysqlPassword;
+	final String pgsqlSchema;
 	private List<String> dumpRows;
 
-	public SchemaConverter(String schemaName, String mysqlHost, Integer mysqlPort, String mysqlUser, String mysqlPassword) {
-		this.schemaName = schemaName;
+	/**
+	 * @param mysqlSchema
+	 * @param mysqlHost
+	 * @param mysqlPort
+	 * @param mysqlUser
+	 * @param mysqlPassword
+	 * @param pgsqlSchema
+	 */
+	public SchemaConverter(String mysqlSchema, String mysqlHost, Integer mysqlPort, String mysqlUser, String mysqlPassword, String pgsqlSchema) {
+		this.pgsqlSchema = pgsqlSchema;
+		this.mysqlSchema = mysqlSchema;
 		this.mysqlHost = mysqlHost;
 		this.mysqlPort = mysqlPort;
 		this.mysqlUser = mysqlUser;
@@ -51,7 +60,7 @@ public class SchemaConverter {
 		args.add("--password=" + mysqlPassword);
 		args.add("--default-character-set=utf8mb4");
 		args.add("--single-transaction");
-		args.add(schemaName);
+		args.add(mysqlSchema);
 		ProcessBuilder pb = new ProcessBuilder(args);
 		pb.redirectErrorStream(true);
 		System.console().printf("Generating schema dump...");
@@ -119,7 +128,7 @@ public class SchemaConverter {
 			// CONSTRAINT "fk_constraint_name" FOREIGN KEY ("col_name") REFERENCES "ref_table_name" ("ref_col_name") ON UPDATE NO ACTION
 			m = compile("^CONSTRAINT `(\\S+)` FOREIGN KEY \\(`(\\S+)`\\) REFERENCES `(\\S+)` \\(`(\\S+)`\\)[A-Z\\s]*$").matcher(line);
 			if (m.matches()) {
-				tableMetaData.addConstraint(format("ALTER TABLE \"%s\".\"%s\" ADD CONSTRAINT \"%s\" FOREIGN KEY (\"%s\") REFERENCES \"%s\" (\"%s\") ON UPDATE NO ACTION ON DELETE NO ACTION", schemaName, tableMetaData.getTableName(), m.group(1), m.group(2), m.group(3), m.group(4)));
+				tableMetaData.addConstraint(format("ALTER TABLE \"%s\".\"%s\" ADD CONSTRAINT \"%s\" FOREIGN KEY (\"%s\") REFERENCES \"%s\" (\"%s\") ON UPDATE NO ACTION ON DELETE NO ACTION", pgsqlSchema, tableMetaData.getTableName(), m.group(1), m.group(2), m.group(3), m.group(4)));
 				continue;
 			}
 			//Unique constraints
@@ -127,7 +136,7 @@ public class SchemaConverter {
 			//to:   ALTER TABLE "schema_name"."table_name" ADD CONSTRAINT "ix_name" UNIQUE ("col1", "col2", "col3", "col4");
 			m = compile("^UNIQUE KEY `(\\S+)` \\((\\S+)\\)[^\\(]*$").matcher(line);
 			if (m.matches()) {
-				tableMetaData.addConstraint(format("ALTER TABLE \"%s\".\"%s\" ADD CONSTRAINT \"%s_%s\" UNIQUE (%s)", schemaName, tableMetaData.getTableName(), tableMetaData.getTableName(), m.group(1), m.group(2).replaceAll("`", "\"")));
+				tableMetaData.addConstraint(format("ALTER TABLE \"%s\".\"%s\" ADD CONSTRAINT \"%s_%s\" UNIQUE (%s)", pgsqlSchema, tableMetaData.getTableName(), tableMetaData.getTableName(), m.group(1), m.group(2).replaceAll("`", "\"")));
 				continue;
 			}
 			//Primary keys
@@ -135,7 +144,7 @@ public class SchemaConverter {
 			//to  : ALTER TABLE "schema_name"."table_name" ADD CONSTRAINT "table_name_pkey" PRIMARY KEY ("col1", "col2");
 			m = compile("^PRIMARY KEY \\((\\S+)\\)[^\\(]*$").matcher(line);
 			if (m.matches()) {
-				tableMetaData.addPk(format("ALTER TABLE \"%s\".\"%s\" ADD CONSTRAINT \"%s_pkey\" PRIMARY KEY (%s)", schemaName, tableMetaData.getTableName(), tableMetaData.getTableName(), m.group(1).replaceAll("`", "\"")));
+				tableMetaData.addPk(format("ALTER TABLE \"%s\".\"%s\" ADD CONSTRAINT \"%s_pkey\" PRIMARY KEY (%s)", pgsqlSchema, tableMetaData.getTableName(), tableMetaData.getTableName(), m.group(1).replaceAll("`", "\"")));
 				continue;
 			}
 			//
@@ -149,7 +158,7 @@ public class SchemaConverter {
 			//Extract possible comments
 			m = compile("^.* (COMMENT) '(.*)'$").matcher(line);
 			if (m.matches()) {
-				tableMetaData.addComment(format("COMMENT ON COLUMN \"%s\".\"%s\".\"%s\" IS '%s';", schemaName, tableMetaData.getTableName(), columnName, m.group(2)));
+				tableMetaData.addComment(format("COMMENT ON COLUMN \"%s\".\"%s\".\"%s\" IS '%s';", pgsqlSchema, tableMetaData.getTableName(), columnName, m.group(2)));
 				line = line.substring(0, m.start(1) - 1) + line.substring(m.end(2) + 1);
 			}
 
@@ -214,13 +223,13 @@ public class SchemaConverter {
 	}
 
 	File generatePostgresTableDefinitionFile(String pgsqlUser) throws IOException {
-		File file = File.createTempFile(schemaName + "_schema_definition", ".sql");
+		File file = File.createTempFile(pgsqlSchema + "_schema_definition", ".sql");
 		try (BufferedWriter writer = new BufferedWriter(new FileWriter(file))) {
-			writer.write("DROP SCHEMA IF EXISTS " + schemaName + " cascade;\n");
-			writer.write("CREATE SCHEMA " + schemaName + " authorization " + pgsqlUser + ";\n");
+			writer.write("DROP SCHEMA IF EXISTS " + pgsqlSchema + " cascade;\n");
+			writer.write("CREATE SCHEMA " + pgsqlSchema + " authorization " + pgsqlUser + ";\n");
 			writer.write('\n');
 			for (TableMetaData tableMetaData : tables) {
-				writer.write(tableMetaData.generateCreateTableStatement(schemaName));
+				writer.write(tableMetaData.generateCreateTableStatement(pgsqlSchema));
 				writer.write('\n');
 			}
 			writer.flush();
@@ -229,7 +238,7 @@ public class SchemaConverter {
 	}
 
 	File generatePostgresIndexAndConstraintsFile() throws IOException {
-		File file = File.createTempFile(schemaName + "_ix_constraints_definition", ".sql");
+		File file = File.createTempFile(pgsqlSchema + "_ix_constraints_definition", ".sql");
 		try (BufferedWriter writer = new BufferedWriter(new FileWriter(file))) {
 			for (TableMetaData tableMetaData : tables) {
 				String cons = tableMetaData.generateConstraintsStatement();
@@ -249,7 +258,7 @@ public class SchemaConverter {
 	}
 
 	File generatePostgresPkDefFile() throws IOException {
-		File file = File.createTempFile(schemaName + "_pk_definition", ".sql");
+		File file = File.createTempFile(pgsqlSchema + "_pk_definition", ".sql");
 		try (BufferedWriter writer = new BufferedWriter(new FileWriter(file))) {
 			for (TableMetaData tableMetaData : tables) {
 				String pk = tableMetaData.generatePkStatement();
@@ -264,7 +273,7 @@ public class SchemaConverter {
 	}
 
 	File generatePostSqlFile() throws IOException {
-		File file = File.createTempFile(schemaName + "_post_sqls", ".sql");
+		File file = File.createTempFile(pgsqlSchema + "_post_sqls", ".sql");
 		try (BufferedWriter writer = new BufferedWriter(new FileWriter(file))) {
 			for (TableMetaData tableMetaData : tables) {
 				String postSql = tableMetaData.generatePostSqls();
@@ -296,7 +305,7 @@ public class SchemaConverter {
 					}
 				}
 			}
-			tableMetaData.addIndex(format("CREATE INDEX \"%s_%s\" ON \"%s\".\"%s\" (%s)", tableMetaData.getTableName(), m.group(1), schemaName, tableMetaData.getTableName(), listToString(colsList)));
+			tableMetaData.addIndex(format("CREATE INDEX \"%s_%s\" ON \"%s\".\"%s\" (%s)", tableMetaData.getTableName(), m.group(1), pgsqlSchema, tableMetaData.getTableName(), listToString(colsList)));
 		} else {
 			throw new ParseException("Could not parse index row: " + line, -1);
 		}
@@ -308,11 +317,11 @@ public class SchemaConverter {
 			tableMetaData.addColDefinition("\"" + m.group(1) + "\" " + (m.group(2) != null ? m.group(2) : "") + "serial");
 			tableMetaData.addPostSQL(format(
 					"SELECT setval('\"%s\".\"%s_%s_seq\"', (select coalesce(max(\"%s\"), 0)+1 from \"%s\".\"%s\"))",
-					schemaName,
+					pgsqlSchema,
 					tableMetaData.getTableName(),
 					m.group(1),
 					m.group(1),
-					schemaName,
+					pgsqlSchema,
 					tableMetaData.getTableName()));
 		} else {
 			throw new ParseException("Could not parse auto increment row: " + line, -1);
