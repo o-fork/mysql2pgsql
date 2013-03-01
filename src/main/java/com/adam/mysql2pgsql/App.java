@@ -45,7 +45,7 @@ public class App {
 		String mysqlUrl = "jdbc:mysql://" + mysqlHost + ":" + mysqlPort + "/";
 		DriverManager.registerDriver((java.sql.Driver) Class.forName("com.mysql.jdbc.Driver").newInstance());
 
-		String pgsqlUrl = "jdbc:postgresql://" + pgsqlHost + ":" + pgsqlPort + "/";
+		String pgsqlUrl = "jdbc:postgresql://" + pgsqlHost + ":" + pgsqlPort + "/"+pgsqlDb;
 		DriverManager.registerDriver((java.sql.Driver) Class.forName("org.postgresql.Driver").newInstance());
 
 		SchemaConverter schemaConverter = new SchemaConverter(mysqlSchema, mysqlHost, mysqlPort, mysqlUser, mysqlPassword, pgsqlSchema);
