@@ -51,7 +51,7 @@ public class SchemaConverter {
 	@SuppressWarnings("SleepWhileInLoop")
 	protected void generateMysqlDumpData() throws IOException {
 		List<String> args = new LinkedList<>();
-		args.add("/usr/bin/mysqldump");
+		args.add("mysqldump");
 		args.add("--skip-comments");
 		args.add("--no-data");
 		args.add("--host=" + mysqlHost);

@@ -29,7 +29,7 @@ public class PSQLExecutor {
 	void executeFile(File file) throws IOException {
 		System.out.println("ExecuteCommand called with file: " + file.getAbsolutePath());
 		List<String> args = new LinkedList<>();
-		args.add("/usr/bin/psql");
+		args.add("psql");
 		args.add("--dbname=" + pgsqlDb);
 		args.add("-h" + pgsqlHost);
 		args.add("--port=" + String.valueOf(pgsqlPort));

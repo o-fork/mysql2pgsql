@@ -7,6 +7,8 @@ Tool for migrating a full database from mysql to postgresql
 ```sh
 mvn clean install 
 ```
+#Prerequisites
+mysqldump and psql needs to be installed and on the path for the process
 
 #Run
 ```sh
