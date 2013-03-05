@@ -14,6 +14,7 @@ import java.text.ParseException;
 import java.util.ArrayList;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.Set;
 import java.util.regex.Matcher;
 
 public class SchemaConverter {
@@ -25,6 +26,7 @@ public class SchemaConverter {
 	final String mysqlPassword;
 	final String pgsqlSchema;
 	private List<String> dumpRows;
+	private final Set<String> onlyMigrateTables;
 
 	/**
 	 * @param mysqlSchema
@@ -33,14 +35,23 @@ public class SchemaConverter {
 	 * @param mysqlUser
 	 * @param mysqlPassword
 	 * @param pgsqlSchema
+	 * @param onlyMigrateTables
 	 */
-	public SchemaConverter(String mysqlSchema, String mysqlHost, Integer mysqlPort, String mysqlUser, String mysqlPassword, String pgsqlSchema) {
+	public SchemaConverter(
+			String mysqlSchema,
+			String mysqlHost,
+			Integer mysqlPort,
+			String mysqlUser,
+			String mysqlPassword,
+			String pgsqlSchema,
+			Set<String> onlyMigrateTables) {
 		this.pgsqlSchema = pgsqlSchema;
 		this.mysqlSchema = mysqlSchema;
 		this.mysqlHost = mysqlHost;
 		this.mysqlPort = mysqlPort;
 		this.mysqlUser = mysqlUser;
 		this.mysqlPassword = mysqlPassword;
+		this.onlyMigrateTables = onlyMigrateTables;
 	}
 
 	/**
@@ -61,6 +72,11 @@ public class SchemaConverter {
 		args.add("--default-character-set=utf8mb4");
 		args.add("--single-transaction");
 		args.add(mysqlSchema);
+		if (onlyMigrateTables != null) {
+			for (String table : onlyMigrateTables) {
+				args.add(table);
+			}
+		}
 		ProcessBuilder pb = new ProcessBuilder(args);
 		pb.redirectErrorStream(true);
 		System.console().printf("Generating schema dump...");
@@ -82,7 +98,7 @@ public class SchemaConverter {
 		try {
 			int exitCode = process.waitFor();
 			if (exitCode != 0) {
-				System.err.println("Got exit code " + exitCode + " from subprocess");
+				System.console().printf("Got exit code %d from subprocess", exitCode);
 				throw new IOException(lines.toString());
 			}
 		} catch (InterruptedException ex) {
@@ -111,7 +127,9 @@ public class SchemaConverter {
 			//Closing parenthesis
 			m = compile("^\\) ENGINE=.*$").matcher(line);
 			if (m.matches()) {
-				tables.add(tableMetaData);
+				if(tableMetaData != null && (onlyMigrateTables == null || onlyMigrateTables.contains(tableMetaData.getTableName().toLowerCase()))){
+					tables.add(tableMetaData);
+				}
 				tableMetaData = null;
 				continue;
 			}
@@ -223,15 +241,23 @@ public class SchemaConverter {
 	}
 
 	File generatePostgresTableDefinitionFile(String pgsqlUser) throws IOException {
-		File file = File.createTempFile(pgsqlSchema + "_schema_definition", ".sql");
+		File file = File.createTempFile(pgsqlSchema + "_table_definition", ".sql");
 		try (BufferedWriter writer = new BufferedWriter(new FileWriter(file))) {
-			writer.write("DROP SCHEMA IF EXISTS " + pgsqlSchema + " cascade;\n");
-			writer.write("CREATE SCHEMA " + pgsqlSchema + " authorization " + pgsqlUser + ";\n");
-			writer.write('\n');
 			for (TableMetaData tableMetaData : tables) {
 				writer.write(tableMetaData.generateCreateTableStatement(pgsqlSchema));
 				writer.write('\n');
 			}
+			writer.flush();
+		}
+		return file;
+	}
+
+	File generatePostgresSchemaDefinitionFile(String pgsqlUser) throws IOException {
+		File file = File.createTempFile(pgsqlSchema + "_schema_definition", ".sql");
+		try (BufferedWriter writer = new BufferedWriter(new FileWriter(file))) {
+			writer.write("DROP SCHEMA IF EXISTS " + pgsqlSchema + " CASCADE;\n");
+			writer.write("CREATE SCHEMA " + pgsqlSchema + " AUTHORIZATION " + pgsqlUser + ";\n");
+			writer.write('\n');
 			writer.flush();
 		}
 		return file;

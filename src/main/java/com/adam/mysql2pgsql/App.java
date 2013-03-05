@@ -7,6 +7,8 @@ import java.io.PrintWriter;
 import java.sql.DriverManager;
 import java.sql.SQLException;
 import java.text.ParseException;
+import java.util.Set;
+import java.util.TreeSet;
 
 public class App {
 
@@ -18,11 +20,12 @@ public class App {
 			return;
 		}
 		PrintWriter writer = console.writer();
-		if (args == null || args.length != 9) {
+		if (args == null || args.length < 9) {
 			writer.append("Missing arguments!\n");
 			writer.append("Required arguments missing!\n");
 			writer.append("Please invoce the script with the following arguments: \n");
-			writer.append("\tmysqlhost mysqlport mysqluser mysqlschema pgsqlhost pgsqlport pgsqldb pgsqluser pgsqlschema\n");
+			writer.append("\tmysqlhost mysqlport mysqluser mysqlschema pgsqlhost pgsqlport pgsqldb pgsqluser pgsqlschema [tablea, tableb]\n");
+			writer.append("\tmysqlhost mysqlport mysqluser mysqlschema pgsqlhost pgsqlport pgsqldb pgsqluser pgsqlschema [table]\n");
 			writer.append("\n");
 			writer.flush();
 			System.exit(1);
@@ -45,10 +48,21 @@ public class App {
 		String mysqlUrl = "jdbc:mysql://" + mysqlHost + ":" + mysqlPort + "/";
 		DriverManager.registerDriver((java.sql.Driver) Class.forName("com.mysql.jdbc.Driver").newInstance());
 
-		String pgsqlUrl = "jdbc:postgresql://" + pgsqlHost + ":" + pgsqlPort + "/"+pgsqlDb;
+		String pgsqlUrl = "jdbc:postgresql://" + pgsqlHost + ":" + pgsqlPort + "/" + pgsqlDb;
 		DriverManager.registerDriver((java.sql.Driver) Class.forName("org.postgresql.Driver").newInstance());
 
-		SchemaConverter schemaConverter = new SchemaConverter(mysqlSchema, mysqlHost, mysqlPort, mysqlUser, mysqlPassword, pgsqlSchema);
+		Set<String> onlyMigrateTables = null;
+		if (args != null && args.length > 9) {
+			onlyMigrateTables = new TreeSet<>();
+			for (int i = 9; i < args.length; i++) {
+				onlyMigrateTables.add(args[i].toLowerCase());
+			}
+			writer.println("Will only migrate tables: " + onlyMigrateTables);
+		} else {
+			writer.println("Will migrate all tables in the schema");
+		}
+
+		SchemaConverter schemaConverter = new SchemaConverter(mysqlSchema, mysqlHost, mysqlPort, mysqlUser, mysqlPassword, pgsqlSchema, onlyMigrateTables);
 		PSQLExecutor psqle = new PSQLExecutor(pgsqlHost, pgsqlDb, pgsqlPort, pgsqlUser, pgsqlPassword);
 
 		//Parse mysql schema
@@ -57,35 +71,24 @@ public class App {
 		schemaConverter.parseSchemaDump();
 		writer.println("Done\n");
 
-		//Security check
-		writer.println("Will now drop possibly existing schema \"" + pgsqlSchema + "\" and recreate it.");
-		writer.println("Please verify that this is what's intended (Y/N)");
-		String answer;
-		do {
-			answer = console.readLine();
-			switch (answer.toUpperCase()) {
-				case "N":
-					System.out.println("Exiting");
-					System.exit(0);
-					break;
-				case "Y":
-					System.out.println("Continuing");
-					break;
-				default:
-					System.out.println("Please answer 'Y' or 'N'");
-			}
-		} while (!"Y".equalsIgnoreCase(answer) && !"N".equalsIgnoreCase(answer));
+		boolean recreateSchema = promptIfSchemaRecreation(pgsqlSchema);
+		if (recreateSchema) {
+			writer.println("Deleting and creating schema in postgres...");
+			File postgresSchemaDefFile = schemaConverter.generatePostgresSchemaDefinitionFile(pgsqlUser);
+			psqle.executeFile(postgresSchemaDefFile);
+			writer.println("Done\n");
+		}
 
+		writer.println("Deleting and creating tables in the postgres schema...");
 		//Apply converted schema definition in postgres
-		System.out.println("Deleting and creating schema in postgres...");
 		File postgresTableDefFile = schemaConverter.generatePostgresTableDefinitionFile(pgsqlUser);
-		System.out.println(postgresTableDefFile.getAbsolutePath());
+		writer.println(postgresTableDefFile.getAbsolutePath());
 		psqle.executeFile(postgresTableDefFile);
-		System.out.println("Done\n");
+		writer.println("Done\n");
 
 		//Migrate all data to the new schema
-		System.out.println("Migrating actual data from mysql to posgres...");
-		try (DataMigrator dataMigrator = new DataMigrator(mysqlUrl, mysqlUser, mysqlPassword, mysqlSchema, pgsqlUrl, pgsqlUser, pgsqlPassword, pgsqlSchema)) {
+		writer.println("Migrating actual data from mysql to posgres...");
+		try (DataMigrator dataMigrator = new DataMigrator(mysqlUrl, mysqlUser, mysqlPassword, mysqlSchema, pgsqlUrl, pgsqlUser, pgsqlPassword, pgsqlSchema, onlyMigrateTables)) {
 			dataMigrator.transferTables();
 		} catch (SQLException sqle) {
 			sqle.printStackTrace(System.out);
@@ -95,28 +98,61 @@ public class App {
 			}
 			throw sqle;
 		}
-		System.out.println("Done\n");
+		writer.println("Done\n");
 
 		//Apply all constraints and indices
-		System.out.println("Applying pk constraints...");
+		writer.println("Applying pk constraints...");
 		File postgresPkDefFile = schemaConverter.generatePostgresPkDefFile();
 		psqle.executeFile(postgresPkDefFile);
-		System.out.println("Done.\n");
+		writer.println("Done.\n");
 
-		System.out.println("Applying fk constraints and creating indices...");
+		writer.println("Applying fk constraints and creating indices...");
 		File postgresIdxAndConstraintsFile = schemaConverter.generatePostgresIndexAndConstraintsFile();
-		System.out.println(postgresIdxAndConstraintsFile.getAbsolutePath());
-		psqle.executeFile(postgresIdxAndConstraintsFile);
-		System.out.println("Done\n");
+		writer.println(postgresIdxAndConstraintsFile.getAbsolutePath());
+		//psqle.executeFile(postgresIdxAndConstraintsFile);
+		writer.println("Done\n");
 
-		System.out.println("Running post SQLs: Updaing sequences to current increment value...");
+		writer.println("Running post SQLs: Updaing sequences to current increment value...");
 		File postSqlFile = schemaConverter.generatePostSqlFile();
-		System.out.println(postSqlFile.getAbsolutePath());
-		psqle.executeFile(postSqlFile);
-		System.out.println("Done\n");
+		writer.println(postSqlFile.getAbsolutePath());
+		//psqle.executeFile(postSqlFile);
+		writer.println("Done\n");
 
 		//All done
-		System.out.println("All done");
+		writer.println("All done");
 
+	}
+
+	private static boolean promptIfSchemaRecreation(String pgsqlSchema) {
+		Console console = System.console();
+		PrintWriter writer = console.writer();
+		//Security check
+		writer.println("Drop existing schema \"" + pgsqlSchema + "\" and recreate it?");
+		writer.println("Please verify that this is what's intended. Note: for both 'Y' and 'N', each individual TABLE will still recreated");
+		writer.println("\t'Y' Yes");
+		writer.println("\t'N' No. Continuing without dropping existing schema.");
+		writer.println("\t'A' Abort");
+		String answer;
+		boolean drop = false;
+		do {
+			answer = console.readLine();
+			switch (answer.toUpperCase()) {
+				case "Y":
+					writer.println("Continuing and recreating schema");
+					drop = true;
+					break;
+				case "N":
+					writer.println("Continuing without dropping schema");
+					drop = false;
+					break;
+				case "A":
+					writer.println("Exiting");
+					System.exit(0);
+					break;
+				default:
+					writer.println("Please answer 'Y', 'N' or 'A'");
+			}
+		} while (!"Y".equalsIgnoreCase(answer) && !"N".equalsIgnoreCase(answer) && !"A".equalsIgnoreCase(answer));
+		return drop;
 	}
 }

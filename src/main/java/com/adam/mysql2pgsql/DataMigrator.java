@@ -1,6 +1,7 @@
 package com.adam.mysql2pgsql;
 
 import java.io.IOException;
+import java.io.PrintWriter;
 import java.io.UnsupportedEncodingException;
 import java.sql.Connection;
 import java.sql.DriverManager;
@@ -26,6 +27,7 @@ public class DataMigrator implements AutoCloseable {
 	private final Connection pgsqlCon;
 	private final String mysqlSchema;
 	private final String pgsqlSchema;
+	private final Set<String> onlyMigrateTables;
 
 	/**
 	 * @param mysqlUrl
@@ -36,13 +38,24 @@ public class DataMigrator implements AutoCloseable {
 	 * @param pgsqlUser
 	 * @param pgsqlPassword
 	 * @param pgsqlSchema
+	 * @param onlyMigrateTables
 	 * @throws SQLException
 	 */
-	public DataMigrator(String mysqlUrl, String mysqlUser, String mysqlPassword, String mysqlSchema, String pgsqlUrl, String pgsqlUser, String pgsqlPassword, String pgsqlSchema) throws SQLException {
+	public DataMigrator(
+			String mysqlUrl,
+			String mysqlUser,
+			String mysqlPassword,
+			String mysqlSchema,
+			String pgsqlUrl,
+			String pgsqlUser,
+			String pgsqlPassword,
+			String pgsqlSchema,
+			Set<String> onlyMigrateTables) throws SQLException {
 		this.mysqlCon = DriverManager.getConnection(mysqlUrl, mysqlUser, mysqlPassword);
 		this.pgsqlCon = DriverManager.getConnection(pgsqlUrl, pgsqlUser, pgsqlPassword);
 		this.mysqlSchema = mysqlSchema;
 		this.pgsqlSchema = pgsqlSchema;
+		this.onlyMigrateTables = onlyMigrateTables;
 	}
 
 	/**
@@ -60,7 +73,10 @@ public class DataMigrator implements AutoCloseable {
 					continue;
 				}
 				String tableNameLc = tableName.toLowerCase();
-				if (false && tableNameLc.startsWith("tmp_")
+				if (onlyMigrateTables != null && !onlyMigrateTables.contains(tableNameLc)) {
+					continue;
+				}
+				if (tableNameLc.startsWith("tmp_")
 						|| tableNameLc.startsWith("temp_")
 						|| tableNameLc.contains("_bak_")
 						|| tableNameLc.endsWith("_bak")
@@ -100,7 +116,8 @@ public class DataMigrator implements AutoCloseable {
 	 * @throws SQLException
 	 */
 	void transferTable(String tableName) throws SQLException {
-		System.out.println("Transfering data for table " + tableName);
+		PrintWriter writer = System.console().writer();
+		writer.println("Transfering data for table " + tableName);
 		PreparedStatement mysqlPs = null;
 		PreparedStatement pgsqlPs = null;
 		try {
@@ -134,15 +151,15 @@ public class DataMigrator implements AutoCloseable {
 				if (ctr % BATCH_SIZE == 0) {
 					pgsqlPs.executeBatch();
 					pgsqlCon.commit();
-					System.out.println(tableName + ": interCtr = " + totCtr + ", speed is: " + ((int) (((double) totCtr * 1000) / (System.currentTimeMillis() - startTime)) + " r/s"));
+					writer.println(tableName + ": " + totCtr + ", speed is: " + ((int) (((double) totCtr * 1000) / (System.currentTimeMillis() - startTime)) + " r/s"));
 					ctr = 0;
 				}
 			}
 			if (ctr > 0) {
 				pgsqlPs.executeBatch();
-				System.out.println(tableName + ": totCtr = " + totCtr + ", speed is: " + ((int) (((double) totCtr * 1000) / (System.currentTimeMillis() - startTime)) + " r/s"));
 				pgsqlCon.commit();
 			}
+			writer.println("Table " + tableName + " migrated. total nr of rows: " + totCtr + ", total speed was: " + ((int) (((double) totCtr * 1000) / (System.currentTimeMillis() - startTime)) + " r/s"));
 		} finally {
 			cleanup(mysqlPs);
 			cleanup(pgsqlPs);
@@ -154,7 +171,8 @@ public class DataMigrator implements AutoCloseable {
 	 * @throws SQLException
 	 */
 	public void transferTables() throws SQLException {
-		System.out.println("Transfer tables called");
+		PrintWriter writer = System.console().writer();
+		writer.println("Transfer tables called");
 		Set<String> mysqlTableNames = getMysqlTableNames();
 		for (String tableName : mysqlTableNames) {
 			transferTable(tableName);

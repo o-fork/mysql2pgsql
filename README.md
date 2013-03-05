@@ -12,8 +12,10 @@ mysqldump and psql needs to be installed and on the path for the process
 
 #Run
 ```sh
-java -Xmx4G -jar target/mysql2pgsql-1.0-SNAPSHOT.jar mysqlhost mysqlport mysqluser mysqlschema pgsqlhost pgsqlport pgsqldb pgsqluser pgsqlschema
+java -Xmx4G -jar target/mysql2pgsql-1.0-SNAPSHOT.jar mysqlhost mysqlport mysqluser mysqlschema pgsqlhost pgsqlport pgsqldb pgsqluser pgsqlschema [table1...tableN]
 ```
+Where the only optional argument is the list of tables. If provided, only those tables will be migrated.
+
 The heap size may need to be modified to match the largest table. Mysql's jdbc driver doesn't seem to support limited fetch sizes so all rows are read before writing to postgres
 
 #Flow of operation

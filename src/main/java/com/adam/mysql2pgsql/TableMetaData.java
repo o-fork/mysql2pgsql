@@ -52,7 +52,9 @@ public class TableMetaData {
 	}
 
 	String generateCreateTableStatement(String schemaName) {
-		String retStr = String.format("CREATE TABLE \"%s\".\"%s\" (\n", schemaName, tableName);
+		String retStr = "";
+		retStr += String.format("DROP TABLE IF EXISTS \"%s\".\"%s\" CASCADE;\n", schemaName, tableName);
+		retStr += String.format("CREATE TABLE \"%s\".\"%s\" (\n", schemaName, tableName);
 		for (int i = 0; i < colDefinitions.size(); i++) {
 			if (i < colDefinitions.size() - 1) {
 				retStr += "\t" + colDefinitions.get(i) + ",\n";
