@@ -111,13 +111,13 @@ public class App {
 		writer.println("Applying fk constraints and creating indices...");
 		File postgresIdxAndConstraintsFile = schemaConverter.generatePostgresIndexAndConstraintsFile();
 		writer.println(postgresIdxAndConstraintsFile.getAbsolutePath());
-		//psqle.executeFile(postgresIdxAndConstraintsFile);
+		psqle.executeFile(postgresIdxAndConstraintsFile);
 		writer.println("Done\n");
 
 		writer.println("Running post SQLs: Updaing sequences to current increment value...");
 		File postSqlFile = schemaConverter.generatePostSqlFile();
 		writer.println(postSqlFile.getAbsolutePath());
-		//psqle.executeFile(postSqlFile);
+		psqle.executeFile(postSqlFile);
 		writer.println("Done\n");
 
 		//All done
