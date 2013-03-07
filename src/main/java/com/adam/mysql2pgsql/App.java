@@ -24,8 +24,10 @@ public class App {
 			writer.append("Missing arguments!\n");
 			writer.append("Required arguments missing!\n");
 			writer.append("Please invoce the script with the following arguments: \n");
+			writer.append("\n");
 			writer.append("\tmysqlhost mysqlport mysqluser mysqlschema pgsqlhost pgsqlport pgsqldb pgsqluser pgsqlschema [tablea, tableb]\n");
-			writer.append("\tmysqlhost mysqlport mysqluser mysqlschema pgsqlhost pgsqlport pgsqldb pgsqluser pgsqlschema [table]\n");
+			writer.append("\n");
+			writer.append("If any table specified, only that/those specific tables will be migrated. Otherwise all tables in the entire schema \n");
 			writer.append("\n");
 			writer.flush();
 			System.exit(1);
