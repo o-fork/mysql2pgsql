@@ -23,6 +23,7 @@ import java.util.logging.Logger;
 public class DataMigrator implements AutoCloseable {
 
 	private static final long BATCH_SIZE = 10000;
+	private static final long NR_OF_ROWS_PER_SELECT = 10000;
 	private final Connection mysqlCon;
 	private final Connection pgsqlCon;
 	private final String mysqlSchema;
@@ -117,11 +118,52 @@ public class DataMigrator implements AutoCloseable {
 	 */
 	void transferTable(String tableName) throws SQLException {
 		PrintWriter writer = System.console().writer();
-		writer.println("Transfering data for table " + tableName);
+		writer.println("Figuring out if the transfer can be divided into parts");
+		String numericPkColumn = findNumericPkColumn(tableName);
+		Long min = null;
+		Long max = null;
+		if (numericPkColumn != null && !numericPkColumn.isEmpty()) {
+			PreparedStatement ps = null;
+			try {
+				ps = mysqlCon.prepareStatement(String.format("SELECT MIN(%s) AS min, MAX(%s) AS max FROM `%s`.`%s`;", numericPkColumn, numericPkColumn, mysqlSchema, tableName));
+				ResultSet rs = ps.executeQuery();
+				if (rs.next()) {
+					min = rs.getLong("min");
+					max = rs.getLong("max");
+				}
+
+			} finally {
+				cleanup(ps);
+			}
+		}
+		//
+		if (min != null && max != null && numericPkColumn != null) {
+			for (long pkValue = min; min <= max; pkValue += NR_OF_ROWS_PER_SELECT + 1) {
+				transferData(tableName, numericPkColumn, pkValue, pkValue + NR_OF_ROWS_PER_SELECT);
+			}
+		} else {
+			transferData(tableName, null, null, null);
+		}
+	}
+
+	private void transferData(String tableName, String numericPkColumn, Long from, Long until) throws SQLException {
+		PrintWriter writer = System.console().writer();
+		String sql;
+		if (numericPkColumn != null) {
+			writer.println("Transfering data for table " + tableName + " with " + from + "<=" + numericPkColumn + "<=" + until);
+			sql = String.format("SELECT * FROM `%s`.`%s` WHERE %s BETWEEN ? AND ?", mysqlSchema, tableName, numericPkColumn);
+		} else {
+			writer.println("Transfering data for table " + tableName);
+			sql = String.format("SELECT * FROM `%s`.`%s`", mysqlSchema, tableName);
+		}
 		PreparedStatement mysqlPs = null;
 		PreparedStatement pgsqlPs = null;
 		try {
-			mysqlPs = mysqlCon.prepareStatement("select * from " + "`" + mysqlSchema + "`.`" + tableName + "`", ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY);
+			mysqlPs = mysqlCon.prepareStatement(sql, ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY);
+			if(numericPkColumn != null){
+				mysqlPs.setLong(1, from);
+				mysqlPs.setLong(2, until);
+			}
 			mysqlPs.setFetchSize(10000);
 			ResultSet mysqlRs = mysqlPs.executeQuery();
 			ResultSetMetaData metaData = mysqlRs.getMetaData();
@@ -164,6 +206,7 @@ public class DataMigrator implements AutoCloseable {
 			cleanup(mysqlPs);
 			cleanup(pgsqlPs);
 		}
+
 	}
 
 	/**
@@ -312,5 +355,28 @@ public class DataMigrator implements AutoCloseable {
 	public void close() throws IOException {
 		cleanup(mysqlCon);
 		cleanup(pgsqlCon);
+	}
+
+	private String findNumericPkColumn(String tableName) throws SQLException {
+		PreparedStatement ps = null;
+		try {
+			ps = mysqlCon.prepareStatement(""
+					+ "SHOW COLUMNS \n"
+					+ "FROM `" + mysqlSchema + "`.`" + tableName + "` \n"
+					+ "WHERE `Null` = 'NO' \n"
+					+ "AND `Key` IN ('PRI') \n"
+					+ "AND (`Type` LIKE 'bigint%' OR `Type` LIKE 'int%')"
+					+ ";");
+			ResultSet rs = ps.executeQuery();
+			String colName;
+			if (rs.next()) {
+				colName = rs.getString("Field");
+			} else {
+				colName = null;
+			}
+			return colName;
+		} finally {
+			cleanup(ps);
+		}
 	}
 }
