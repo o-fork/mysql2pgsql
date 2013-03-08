@@ -146,7 +146,7 @@ public class SchemaConverter {
 			// CONSTRAINT "fk_constraint_name" FOREIGN KEY ("col_name") REFERENCES "ref_table_name" ("ref_col_name") ON UPDATE NO ACTION
 			m = compile("^CONSTRAINT `(\\S+)` FOREIGN KEY \\(`(\\S+)`\\) REFERENCES `(\\S+)` \\(`(\\S+)`\\)[A-Z\\s]*$").matcher(line);
 			if (m.matches()) {
-				tableMetaData.addConstraint(format("ALTER TABLE \"%s\".\"%s\" ADD CONSTRAINT \"%s\" FOREIGN KEY (\"%s\") REFERENCES \"%s\" (\"%s\") ON UPDATE NO ACTION ON DELETE NO ACTION", pgsqlSchema, tableMetaData.getTableName(), m.group(1), m.group(2), m.group(3), m.group(4)));
+				tableMetaData.addConstraint(format("ALTER TABLE \"%s\".\"%s\" ADD CONSTRAINT \"%s\" FOREIGN KEY (\"%s\") REFERENCES \"%s\" (\"%s\") ON UPDATE NO ACTION ON DELETE NO ACTION", pgsqlSchema, tableMetaData.getTableName(), m.group(1).toLowerCase(), m.group(2).toLowerCase(), m.group(3).toLowerCase(), m.group(4).toLowerCase()));
 				continue;
 			}
 			//Unique constraints
@@ -154,7 +154,7 @@ public class SchemaConverter {
 			//to:   ALTER TABLE "schema_name"."table_name" ADD CONSTRAINT "ix_name" UNIQUE ("col1", "col2", "col3", "col4");
 			m = compile("^UNIQUE KEY `(\\S+)` \\((\\S+)\\)[^\\(]*$").matcher(line);
 			if (m.matches()) {
-				tableMetaData.addConstraint(format("ALTER TABLE \"%s\".\"%s\" ADD CONSTRAINT \"%s_%s\" UNIQUE (%s)", pgsqlSchema, tableMetaData.getTableName(), tableMetaData.getTableName(), m.group(1), m.group(2).replaceAll("`", "\"")));
+				tableMetaData.addConstraint(format("ALTER TABLE \"%s\".\"%s\" ADD CONSTRAINT \"%s_%s\" UNIQUE (%s)", pgsqlSchema, tableMetaData.getTableName(), tableMetaData.getTableName(), m.group(1).toLowerCase(), m.group(2).toLowerCase().replaceAll("`", "\"").toLowerCase()));
 				continue;
 			}
 			//Primary keys
@@ -162,7 +162,7 @@ public class SchemaConverter {
 			//to  : ALTER TABLE "schema_name"."table_name" ADD CONSTRAINT "table_name_pkey" PRIMARY KEY ("col1", "col2");
 			m = compile("^PRIMARY KEY \\((\\S+)\\)[^\\(]*$").matcher(line);
 			if (m.matches()) {
-				tableMetaData.addPk(format("ALTER TABLE \"%s\".\"%s\" ADD CONSTRAINT \"%s_pkey\" PRIMARY KEY (%s)", pgsqlSchema, tableMetaData.getTableName(), tableMetaData.getTableName(), m.group(1).replaceAll("`", "\"")));
+				tableMetaData.addPk(format("ALTER TABLE \"%s\".\"%s\" ADD CONSTRAINT \"%s_pkey\" PRIMARY KEY (%s)", pgsqlSchema, tableMetaData.getTableName(), tableMetaData.getTableName(), m.group(1).replaceAll("`", "\"").toLowerCase()));
 				continue;
 			}
 			//
@@ -325,9 +325,9 @@ public class SchemaConverter {
 				if (m2.matches()) {
 					String numeric = m2.group(2);
 					if (numeric != null && !numeric.isEmpty()) {
-						colsList.add("left(\"" + m2.group(1) + "\", " + numeric.substring(1, numeric.length() - 1) + ")");
+						colsList.add("left(\"" + m2.group(1).toLowerCase() + "\", " + numeric.substring(1, numeric.length() - 1) + ")");
 					} else {
-						colsList.add("\"" + m2.group(1) + "\"");
+						colsList.add("\"" + m2.group(1).toLowerCase() + "\"");
 					}
 				}
 			}
@@ -345,8 +345,8 @@ public class SchemaConverter {
 					"SELECT setval('\"%s\".\"%s_%s_seq\"', (select coalesce(max(\"%s\"), 0)+1 from \"%s\".\"%s\"))",
 					pgsqlSchema,
 					tableMetaData.getTableName(),
-					m.group(1),
-					m.group(1),
+					m.group(1).toLowerCase(),
+					m.group(1).toLowerCase(),
 					pgsqlSchema,
 					tableMetaData.getTableName()));
 		} else {

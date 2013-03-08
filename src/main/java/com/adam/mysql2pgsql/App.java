@@ -90,7 +90,8 @@ public class App {
 
 		//Migrate all data to the new schema
 		writer.println("Migrating actual data from mysql to posgres...");
-		try (DataMigrator dataMigrator = new DataMigrator(mysqlUrl, mysqlUser, mysqlPassword, mysqlSchema, pgsqlUrl, pgsqlUser, pgsqlPassword, pgsqlSchema, onlyMigrateTables)) {
+		DataMigrator dataMigrator = new DataMigrator(mysqlUrl, mysqlUser, mysqlPassword, mysqlSchema, pgsqlUrl, pgsqlUser, pgsqlPassword, pgsqlSchema, onlyMigrateTables);
+		try {
 			dataMigrator.transferTables();
 		} catch (SQLException sqle) {
 			sqle.printStackTrace(System.out);

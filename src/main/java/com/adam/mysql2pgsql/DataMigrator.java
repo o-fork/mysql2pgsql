@@ -1,6 +1,5 @@
 package com.adam.mysql2pgsql;
 
-import java.io.IOException;
 import java.io.PrintWriter;
 import java.io.UnsupportedEncodingException;
 import java.sql.Connection;
@@ -12,23 +11,31 @@ import java.sql.SQLException;
 import java.sql.Statement;
 import java.sql.Timestamp;
 import java.sql.Types;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.TreeSet;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
-public class DataMigrator implements AutoCloseable {
+public class DataMigrator {
 
 	private static final long BATCH_SIZE = 10000;
-	private static final long NR_OF_ROWS_PER_SELECT = 10000;
-	private final Connection mysqlCon;
-	private final Connection pgsqlCon;
+	private static final long NR_OF_ROWS_PER_SELECT = 30000;
+	private final String mysqlPassword;
 	private final String mysqlSchema;
+	private final String pgsqlPassword;
 	private final String pgsqlSchema;
 	private final Set<String> onlyMigrateTables;
+	private final String mysqlUrl;
+	private final String mysqlUser;
+	private final String pgsqlUrl;
+	private final String pgsqlUser;
 
 	/**
 	 * @param mysqlUrl
@@ -40,7 +47,6 @@ public class DataMigrator implements AutoCloseable {
 	 * @param pgsqlPassword
 	 * @param pgsqlSchema
 	 * @param onlyMigrateTables
-	 * @throws SQLException
 	 */
 	public DataMigrator(
 			String mysqlUrl,
@@ -51,22 +57,38 @@ public class DataMigrator implements AutoCloseable {
 			String pgsqlUser,
 			String pgsqlPassword,
 			String pgsqlSchema,
-			Set<String> onlyMigrateTables) throws SQLException {
-		this.mysqlCon = DriverManager.getConnection(mysqlUrl, mysqlUser, mysqlPassword);
-		this.pgsqlCon = DriverManager.getConnection(pgsqlUrl, pgsqlUser, pgsqlPassword);
+			Set<String> onlyMigrateTables) {
+		this.mysqlPassword = mysqlPassword;
 		this.mysqlSchema = mysqlSchema;
+		this.pgsqlPassword = pgsqlPassword;
 		this.pgsqlSchema = pgsqlSchema;
 		this.onlyMigrateTables = onlyMigrateTables;
+		this.mysqlUrl = mysqlUrl;
+		this.mysqlUser = mysqlUser;
+		this.pgsqlUrl = pgsqlUrl;
+		this.pgsqlUser = pgsqlUser;
+	}
+
+	private Connection createMysqlConnection() throws SQLException {
+		return DriverManager.getConnection(mysqlUrl, mysqlUser, mysqlPassword);
+	}
+
+	private Connection createPgsqlConnection() throws SQLException {
+		return DriverManager.getConnection(pgsqlUrl, pgsqlUser, pgsqlPassword);
+
 	}
 
 	/**
 	 * First, get a list of ignored table names, for the given connection
 	 */
 	private Set<String> getMysqlTableNames() throws SQLException {
-		mysqlCon.setCatalog(mysqlSchema);
+		Connection mysqlCon = null;
+		PreparedStatement stmt = null;
 		Set<String> tableNames = new TreeSet<>();
-		String SQL = "SHOW TABLE STATUS";
-		try (PreparedStatement stmt = mysqlCon.prepareStatement(SQL)) {
+		try {
+			mysqlCon = createMysqlConnection();
+			mysqlCon.setCatalog(mysqlSchema);
+			stmt = mysqlCon.prepareStatement("SHOW TABLE STATUS");
 			ResultSet rs = stmt.executeQuery();
 			while (rs.next()) {
 				String tableName = rs.getString(1);
@@ -90,6 +112,9 @@ public class DataMigrator implements AutoCloseable {
 				tableNames.add(tableName);
 			}
 			return tableNames;
+		} finally {
+			cleanup(mysqlCon);
+			cleanup(stmt);
 		}
 	}
 
@@ -116,55 +141,70 @@ public class DataMigrator implements AutoCloseable {
 	 * @param tableName the name of the table to transfer
 	 * @throws SQLException
 	 */
-	void transferTable(String tableName) throws SQLException {
-		PrintWriter writer = System.console().writer();
-		writer.println("Figuring out if the transfer can be divided into parts");
-		String numericPkColumn = findNumericPkColumn(tableName);
-		Long min = null;
-		Long max = null;
-		if (numericPkColumn != null && !numericPkColumn.isEmpty()) {
-			PreparedStatement ps = null;
-			try {
-				ps = mysqlCon.prepareStatement(String.format("SELECT MIN(%s) AS min, MAX(%s) AS max FROM `%s`.`%s`;", numericPkColumn, numericPkColumn, mysqlSchema, tableName));
-				ResultSet rs = ps.executeQuery();
-				if (rs.next()) {
-					min = rs.getLong("min");
-					max = rs.getLong("max");
-				}
+	void transferTable(final String tableName) throws SQLException {
+		Connection mysqlCon = null;
+		Connection pgsqlCon = null;
+		try {
+			mysqlCon = createMysqlConnection();
+			pgsqlCon = createPgsqlConnection();
 
-			} finally {
-				cleanup(ps);
+			PrintWriter writer = System.console().writer();
+			NumericColumnRange range = null;
+			String numericPkColumn = findNumericPkColumn(mysqlCon, tableName);
+			if (numericPkColumn != null) {
+				PreparedStatement ps = null;
+				try {
+					ps = mysqlCon.prepareStatement(String.format("SELECT MIN(%s) AS min, MAX(%s) AS max FROM `%s`.`%s`;", numericPkColumn, numericPkColumn, mysqlSchema, tableName));
+					ResultSet rs = ps.executeQuery();
+					if (rs.next()) {
+						range = new NumericColumnRange(numericPkColumn, rs.getLong("min"), rs.getLong("max"));
+					}
+				} finally {
+					cleanup(ps);
+				}
 			}
-		}
-		//
-		if (min != null && max != null && numericPkColumn != null) {
-			for (long pkValue = min; min <= max; pkValue += NR_OF_ROWS_PER_SELECT + 1) {
-				transferData(tableName, numericPkColumn, pkValue, pkValue + NR_OF_ROWS_PER_SELECT);
+			//
+			long totRows = 0;
+			int ranges = 0;
+			long startTime = System.currentTimeMillis();
+			if (range != null) {
+				for (long pkValue = range.getMin(); pkValue <= range.getMax(); pkValue += NR_OF_ROWS_PER_SELECT + 1) {
+					totRows += transferTableData(mysqlCon, pgsqlCon, tableName, new NumericColumnRange(numericPkColumn, pkValue, pkValue + NR_OF_ROWS_PER_SELECT));
+					ranges++;
+					//writer.println(tableName + ": range nr " + ranges + ", " + totRows + ", speed is: " + ((int) (((double) totRows * 1000) / (System.currentTimeMillis() - startTime)) + " r/s"));
+				}
+			} else {
+				totRows = transferTableData(mysqlCon, pgsqlCon, tableName, null);
 			}
-		} else {
-			transferData(tableName, null, null, null);
+			writer.println("Finished transfering table " + tableName + ": " + totRows + ", speed was: " + ((int) (((double) totRows * 1000) / (System.currentTimeMillis() - startTime)) + " r/s"));
+		} finally {
+			cleanup(pgsqlCon);
+			cleanup(mysqlCon);
 		}
 	}
 
-	private void transferData(String tableName, String numericPkColumn, Long from, Long until) throws SQLException {
-		PrintWriter writer = System.console().writer();
+	/**
+	 * Transfers data from a mysql table to the corresponding table in pgsql, possibly with a pk range constraint
+	 * @param tableName name of the table to transfer
+	 * @param range a range constraint, may be null
+	 * @return the number of transfered rows
+	 * @throws SQLException
+	 */
+	private int transferTableData(Connection mysqlCon, Connection pgsqlCon, String tableName, NumericColumnRange range) throws SQLException {
 		String sql;
-		if (numericPkColumn != null) {
-			writer.println("Transfering data for table " + tableName + " with " + from + "<=" + numericPkColumn + "<=" + until);
-			sql = String.format("SELECT * FROM `%s`.`%s` WHERE %s BETWEEN ? AND ?", mysqlSchema, tableName, numericPkColumn);
+		if (range != null) {
+			sql = String.format("SELECT * FROM `%s`.`%s` WHERE %s BETWEEN ? AND ?", mysqlSchema, tableName, range.getColName());
 		} else {
-			writer.println("Transfering data for table " + tableName);
 			sql = String.format("SELECT * FROM `%s`.`%s`", mysqlSchema, tableName);
 		}
 		PreparedStatement mysqlPs = null;
 		PreparedStatement pgsqlPs = null;
 		try {
 			mysqlPs = mysqlCon.prepareStatement(sql, ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY);
-			if(numericPkColumn != null){
-				mysqlPs.setLong(1, from);
-				mysqlPs.setLong(2, until);
+			if (range != null) {
+				mysqlPs.setLong(1, range.getMin());
+				mysqlPs.setLong(2, range.getMax());
 			}
-			mysqlPs.setFetchSize(10000);
 			ResultSet mysqlRs = mysqlPs.executeQuery();
 			ResultSetMetaData metaData = mysqlRs.getMetaData();
 			int columnCount = metaData.getColumnCount();
@@ -179,7 +219,6 @@ public class DataMigrator implements AutoCloseable {
 			pgsqlPs = pgsqlCon.prepareStatement(insertStmt);
 			int totCtr = 0;
 			int ctr = 0;
-			long startTime = System.currentTimeMillis();
 			while (mysqlRs.next()) {
 				for (int position = 1; position <= columnCount; position++) {
 					int type = typeByPosition.get(position);
@@ -193,7 +232,6 @@ public class DataMigrator implements AutoCloseable {
 				if (ctr % BATCH_SIZE == 0) {
 					pgsqlPs.executeBatch();
 					pgsqlCon.commit();
-					writer.println(tableName + ": " + totCtr + ", speed is: " + ((int) (((double) totCtr * 1000) / (System.currentTimeMillis() - startTime)) + " r/s"));
 					ctr = 0;
 				}
 			}
@@ -201,12 +239,11 @@ public class DataMigrator implements AutoCloseable {
 				pgsqlPs.executeBatch();
 				pgsqlCon.commit();
 			}
-			writer.println("Table " + tableName + " migrated. total nr of rows: " + totCtr + ", total speed was: " + ((int) (((double) totCtr * 1000) / (System.currentTimeMillis() - startTime)) + " r/s"));
+			return totCtr;
 		} finally {
 			cleanup(mysqlPs);
 			cleanup(pgsqlPs);
 		}
-
 	}
 
 	/**
@@ -217,9 +254,40 @@ public class DataMigrator implements AutoCloseable {
 		PrintWriter writer = System.console().writer();
 		writer.println("Transfer tables called");
 		Set<String> mysqlTableNames = getMysqlTableNames();
-		for (String tableName : mysqlTableNames) {
-			transferTable(tableName);
+		ExecutorService threadPool = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
+		Set<Future<?>> futures = new HashSet<>();
+		for (final String tableName : mysqlTableNames) {
+			Future<?> future = threadPool.submit(new Runnable() {
+				@Override
+				public void run() {
+					try {
+						transferTable(tableName);
+					} catch (SQLException ex) {
+						Logger.getLogger(DataMigrator.class.getName()).log(Level.SEVERE, null, ex);
+					}
+				}
+			});
+			futures.add(future);
 		}
+		Object monitor = new Object();
+		int originalSize = futures.size();
+		while (!futures.isEmpty()) {
+			Iterator<Future<?>> futureIter = futures.iterator();
+			while (futureIter.hasNext()) {
+				Future<?> future = futureIter.next();
+				if (future.isDone()) {
+					futureIter.remove();
+				}
+			}
+			synchronized (monitor) {
+				try {
+					monitor.wait(1000);
+				} catch (InterruptedException ex) {
+				}
+			}
+			writer.println(futures.size() + " /" + originalSize + " tables remaining...");
+		}
+		threadPool.shutdown();
 	}
 
 	/**
@@ -351,13 +419,7 @@ public class DataMigrator implements AutoCloseable {
 		}
 	}
 
-	@Override
-	public void close() throws IOException {
-		cleanup(mysqlCon);
-		cleanup(pgsqlCon);
-	}
-
-	private String findNumericPkColumn(String tableName) throws SQLException {
+	private String findNumericPkColumn(Connection mysqlCon, String tableName) throws SQLException {
 		PreparedStatement ps = null;
 		try {
 			ps = mysqlCon.prepareStatement(""
