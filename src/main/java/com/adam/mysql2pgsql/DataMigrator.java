@@ -25,6 +25,7 @@ import java.util.logging.Logger;
 
 public class DataMigrator {
 
+	private static final Logger LOG = Logger.getLogger(DataMigrator.class.getName());
 	private static final long BATCH_SIZE = 10000;
 	private static final long NR_OF_ROWS_PER_SELECT = 30000;
 	private final String mysqlPassword;
@@ -263,7 +264,8 @@ public class DataMigrator {
 					try {
 						transferTable(tableName);
 					} catch (SQLException ex) {
-						Logger.getLogger(DataMigrator.class.getName()).log(Level.SEVERE, null, ex);
+						LOG.log(Level.SEVERE, null, ex);
+						LOG.log(Level.WARNING, "", ex.getNextException());
 					}
 				}
 			});
