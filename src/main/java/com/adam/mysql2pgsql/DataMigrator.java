@@ -16,7 +16,6 @@ import java.util.Iterator;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
-import java.util.TreeSet;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -27,7 +26,7 @@ public class DataMigrator {
 
 	private static final Logger LOG = Logger.getLogger(DataMigrator.class.getName());
 	private static final long BATCH_SIZE = 10000;
-	private static final long NR_OF_ROWS_PER_SELECT = 30000;
+	private Long MAX_QUERY_SIZE = 20_000_000L;
 	private final String mysqlPassword;
 	private final String mysqlSchema;
 	private final String pgsqlPassword;
@@ -80,19 +79,26 @@ public class DataMigrator {
 	}
 
 	/**
-	 * First, get a list of ignored table names, for the given connection
+	 * @return A map of all tables (and their estimated sizes) in the current mysql schema, ignoring some obvious ingorables
+	 * @throws SQLException
 	 */
-	private Set<String> getMysqlTableNames() throws SQLException {
+	private Map<String, Long> getMysqlTableNames() throws SQLException {
 		Connection mysqlCon = null;
 		PreparedStatement stmt = null;
-		Set<String> tableNames = new TreeSet<>();
+		Map<String, Long> tableNamesAndSizes = new TreeMap<>();
 		try {
 			mysqlCon = createMysqlConnection();
 			mysqlCon.setCatalog(mysqlSchema);
-			stmt = mysqlCon.prepareStatement("SHOW TABLE STATUS");
+			stmt = mysqlCon.prepareStatement(""
+					+ "SELECT table_name, data_length\n"
+					+ "FROM information_schema.tables \n"
+					+ "WHERE table_schema = ? \n"
+					+ "AND table_type = 'BASE TABLE';"); //Where clause addded to prevent views from appearing in the resultset
+			stmt.setString(1, mysqlSchema);
 			ResultSet rs = stmt.executeQuery();
 			while (rs.next()) {
-				String tableName = rs.getString(1);
+				String tableName = rs.getString("table_name");
+				Long sizeBytes = rs.getLong("data_length");
 				if (tableName == null || tableName.length() == 0) {
 					continue;
 				}
@@ -110,9 +116,9 @@ public class DataMigrator {
 						|| tableNameLc.endsWith("_old")) {
 					continue;
 				}
-				tableNames.add(tableName);
+				tableNamesAndSizes.put(tableName, sizeBytes);
 			}
-			return tableNames;
+			return tableNamesAndSizes;
 		} finally {
 			cleanup(mysqlCon);
 			cleanup(stmt);
@@ -142,17 +148,18 @@ public class DataMigrator {
 	 * @param tableName the name of the table to transfer
 	 * @throws SQLException
 	 */
-	void transferTable(final String tableName) throws SQLException {
+	void transferTable(final String tableName, final Long totTableSize) throws SQLException {
 		Connection mysqlCon = null;
 		Connection pgsqlCon = null;
 		try {
+			long startTime = System.currentTimeMillis();
 			mysqlCon = createMysqlConnection();
 			pgsqlCon = createPgsqlConnection();
 
 			PrintWriter writer = System.console().writer();
 			NumericColumnRange range = null;
 			String numericPkColumn = findNumericPkColumn(mysqlCon, tableName);
-			if (numericPkColumn != null) {
+			if (numericPkColumn != null && totTableSize > MAX_QUERY_SIZE) {
 				PreparedStatement ps = null;
 				try {
 					ps = mysqlCon.prepareStatement(String.format("SELECT MIN(%s) AS min, MAX(%s) AS max FROM `%s`.`%s`;", numericPkColumn, numericPkColumn, mysqlSchema, tableName));
@@ -166,18 +173,22 @@ public class DataMigrator {
 			}
 			//
 			long totRows = 0;
-			int ranges = 0;
-			long startTime = System.currentTimeMillis();
+			int batches = 0;
 			if (range != null) {
-				for (long pkValue = range.getMin(); pkValue <= range.getMax(); pkValue += NR_OF_ROWS_PER_SELECT + 1) {
-					totRows += transferTableData(mysqlCon, pgsqlCon, tableName, new NumericColumnRange(numericPkColumn, pkValue, pkValue + NR_OF_ROWS_PER_SELECT));
-					ranges++;
+				long nrQueries = Math.round(totTableSize / MAX_QUERY_SIZE);
+				long nrRowsPerQuery = (long) Math.ceil(((double) (range.getMax() - range.getMin())) / nrQueries);
+				writer.println("Will transfer table " + tableName + " in batches of " + nrRowsPerQuery + " rows per batch. Estim nr batches: " + nrQueries);
+				for (long pkValue = range.getMin(); pkValue <= range.getMax(); pkValue += nrRowsPerQuery + 1) {
+					totRows += transferTableData(mysqlCon, pgsqlCon, tableName, new NumericColumnRange(numericPkColumn, pkValue, pkValue + nrRowsPerQuery));
+					batches++;
 					//writer.println(tableName + ": range nr " + ranges + ", " + totRows + ", speed is: " + ((int) (((double) totRows * 1000) / (System.currentTimeMillis() - startTime)) + " r/s"));
 				}
 			} else {
 				totRows = transferTableData(mysqlCon, pgsqlCon, tableName, null);
+				batches++;
 			}
-			writer.println("Finished transfering table " + tableName + ": " + totRows + ", speed was: " + ((int) (((double) totRows * 1000) / (System.currentTimeMillis() - startTime)) + " r/s"));
+			long duration = (System.currentTimeMillis() - startTime);
+			writer.println("Finished transfering table " + tableName + ": " + totRows + " rows in " + duration + "ms, " + ((int) (((double) totRows * 1000) / duration) + " r/s in " + batches + " batches"));
 		} finally {
 			cleanup(pgsqlCon);
 			cleanup(mysqlCon);
@@ -254,15 +265,16 @@ public class DataMigrator {
 	public void transferTables() throws SQLException {
 		PrintWriter writer = System.console().writer();
 		writer.println("Transfer tables called");
-		Set<String> mysqlTableNames = getMysqlTableNames();
+		Map<String, Long> mysqlTableNames = getMysqlTableNames();
 		ExecutorService threadPool = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
 		Set<Future<?>> futures = new HashSet<>();
-		for (final String tableName : mysqlTableNames) {
+		for (final String tableName : mysqlTableNames.keySet()) {
+			final Long size = mysqlTableNames.get(tableName);
 			Future<?> future = threadPool.submit(new Runnable() {
 				@Override
 				public void run() {
 					try {
-						transferTable(tableName);
+						transferTable(tableName, size);
 					} catch (SQLException ex) {
 						LOG.log(Level.SEVERE, null, ex);
 						LOG.log(Level.WARNING, "", ex.getNextException());
@@ -287,7 +299,8 @@ public class DataMigrator {
 				} catch (InterruptedException ex) {
 				}
 			}
-			writer.println(futures.size() + " /" + originalSize + " tables remaining...");
+			int done = originalSize - futures.size();
+			writer.println(done + " tables done, " + futures.size() + " out of " + originalSize + " tables remaining...");
 		}
 		threadPool.shutdown();
 	}
