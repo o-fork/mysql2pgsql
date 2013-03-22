@@ -12,17 +12,15 @@ mysqldump and psql needs to be installed and on the path for the process
 
 #Run
 ```sh
-java -Xmx4G -jar target/mysql2pgsql-1.0-SNAPSHOT.jar mysqlhost mysqlport mysqluser mysqlschema pgsqlhost pgsqlport pgsqldb pgsqluser pgsqlschema [table1...tableN]
+java -Xmx2G -jar target/mysql2pgsql-1.0-SNAPSHOT.jar mysqlhost mysqlport mysqluser mysqlschema pgsqlhost pgsqlport pgsqldb pgsqluser pgsqlschema [table1...tableN]
 ```
 Where the only optional argument is the list of tables. If provided, only those tables will be migrated.
-
-The heap size may need to be modified to match the largest table. Mysql's jdbc driver doesn't seem to support limited fetch sizes so all rows are read before writing to postgres
 
 #Flow of operation
 1. Dump mysql schema using mysqldump
 2. Convert schema to pgsql format
-3. Create schema and tables in pgsql with converted schema file. No indexes or constraints applied in this phase.
-4. Migrate all data from mysql to pgsql using jdbc
+3. Create schema and tables in pgsql with converted schema file. No indexes or constraints applied in this phase
+4. Migrate all data from mysql to pgsql using jdbc, splitting tables into multiple batches if they are large
 5. Create primary keys
 6. Create indexes and other constraints
 7. Update all sequences to the current max value of each serial column
