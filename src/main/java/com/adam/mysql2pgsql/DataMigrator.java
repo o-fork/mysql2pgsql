@@ -278,6 +278,8 @@ public class DataMigrator {
 					} catch (SQLException ex) {
 						LOG.log(Level.SEVERE, null, ex);
 						LOG.log(Level.WARNING, "", ex.getNextException());
+					} catch (Throwable th) {
+						LOG.log(Level.SEVERE, null, th);
 					}
 				}
 			});
