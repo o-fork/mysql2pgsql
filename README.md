@@ -12,9 +12,10 @@ mysqldump and psql needs to be installed and on the path for the process
 
 #Run
 ```sh
-java -Xmx2G -jar target/mysql2pgsql-1.0-SNAPSHOT.jar mysqlhost mysqlport mysqluser mysqlschema pgsqlhost pgsqlport pgsqldb pgsqluser pgsqlschema [table1...tableN]
+java -Xmx4G -jar target/mysql2pgsql-1.0-SNAPSHOT.jar mysqlhost mysqlport mysqluser mysqlschema pgsqlhost pgsqlport pgsqldb pgsqluser pgsqlschema [table1...tableN]
 ```
 Where the only optional argument is the list of tables. If provided, only those tables will be migrated.
+The memory requirement is because of migration taking place in parallell threads, where each thread will shuffle quite large data sets.
 
 #Flow of operation
 1. Dump mysql schema using mysqldump

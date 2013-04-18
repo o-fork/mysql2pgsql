@@ -181,9 +181,10 @@ public class DataMigrator {
 				for (long pkValue = range.getMin(); pkValue <= range.getMax(); pkValue += nrRowsPerQuery + 1) {
 					totRows += transferTableData(mysqlCon, pgsqlCon, tableName, new NumericColumnRange(numericPkColumn, pkValue, pkValue + nrRowsPerQuery));
 					batches++;
-					//writer.println(tableName + ": range nr " + ranges + ", " + totRows + ", speed is: " + ((int) (((double) totRows * 1000) / (System.currentTimeMillis() - startTime)) + " r/s"));
+					writer.println(tableName + ": batch nr " + batches + ", " + totRows + ", speed is: " + ((int) (((double) totRows * 1000) / (System.currentTimeMillis() - startTime)) + " r/s"));
 				}
 			} else {
+				writer.println("Will transfer table " + tableName + " in one batch.");
 				totRows = transferTableData(mysqlCon, pgsqlCon, tableName, null);
 				batches++;
 			}
@@ -276,10 +277,10 @@ public class DataMigrator {
 					try {
 						transferTable(tableName, size);
 					} catch (SQLException ex) {
-						LOG.log(Level.SEVERE, null, ex);
+						LOG.log(Level.SEVERE, tableName, ex);
 						LOG.log(Level.WARNING, "", ex.getNextException());
 					} catch (Throwable th) {
-						LOG.log(Level.SEVERE, null, th);
+						LOG.log(Level.SEVERE, tableName, th);
 					}
 				}
 			});
